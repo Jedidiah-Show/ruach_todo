@@ -1,0 +1,139 @@
+name: Build Ruach To-do (Windows, Linux & Android)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+
+      - name: Install PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          $addDataArgs = @()
+          if (Test-Path "ruach_ai.png") {
+            $addDataArgs += @("--add-data", "ruach_ai.png;.")
+          }
+          pyinstaller --noconsole --onefile --clean --name "RuachTodo" @addDataArgs app.py
+
+      - name: Upload Windows EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuachTodo-Windows-EXE
+          path: dist/RuachTodo.exe
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+
+      - name: Install Tcl/Tk and PyInstaller
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-tk
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+
+      - name: Build Linux binary
+        run: |
+          ADD_DATA=()
+          if [ -f "ruach_ai.png" ]; then
+            ADD_DATA+=(--add-data "ruach_ai.png:.")
+          fi
+          pyinstaller --noconsole --onefile --clean --name "RuachTodo" "${ADD_DATA[@]}" app.py
+
+      - name: Upload Linux binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuachTodo-Linux-Binary
+          path: dist/RuachTodo
+
+  build-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Ubuntu 24.04 system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip autoconf libtool pkg-config \
+            zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev \
+            lld ccache
+
+      - name: Install Buildozer and Cython
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          pip install buildozer cython
+
+      - name: Cache Buildozer SDK, NDK, and downloaded packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-android-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-android-v1-${{ runner.os }}-
+
+      - name: Build Android debug APK
+        env:
+          ANDROID_ACCEPT_SDK_LICENSE: "1"
+        run: |
+          yes | buildozer -v android debug
+
+      - name: Verify APK output
+        run: |
+          ls -lh bin/
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: RuachTodo-Android-APK
+          path: bin/*.apk
+          if-no-files-found: warn
