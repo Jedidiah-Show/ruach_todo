@@ -13,7 +13,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -33,7 +33,18 @@ jobs:
         shell: pwsh
         run: |
           $entry = if (Test-Path "app.py") { "app.py" } else { "main.py" }
-          $extraArgs = @("--hidden-import", "todo_logic", "--hidden-import", "gcal_sync", "--collect-submodules", "plyer.platforms.win")
+          # Kivy's alternate hook avoids a very slow collect_submodules('kivy.core')
+          # scan on Windows; supply the SDL2 providers explicitly instead.
+          $kivyHooks = python -c "import kivy, os; print(os.path.join(os.path.dirname(kivy.__file__), 'tools', 'packaging', 'pyinstaller_hooks'))"
+          $extraArgs = @(
+            "--hidden-import", "todo_logic",
+            "--hidden-import", "gcal_sync",
+            "--hidden-import", "plyer.platforms.win.notification",
+            "--hidden-import", "kivy.core.window._window_sdl2",
+            "--hidden-import", "kivy.core.text._text_sdl2",
+            "--hidden-import", "kivy.core.image._img_sdl2",
+            "--additional-hooks-dir", $kivyHooks
+          )
           if (Test-Path "ruach_ai.png") {
             $extraArgs += @("--add-data", "ruach_ai.png;.")
           }
@@ -106,7 +117,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            git zip unzip autoconf libtool pkg-config \
+            git zip unzip autoconf automake libtool libltdl-dev pkg-config \
             zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev \
             lld ccache
 
