@@ -30,6 +30,10 @@ jobs:
           pip install pyinstaller kivy==2.3.2 plyer google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
 
       - name: Build Windows executable
+        # The hosted runner has no OpenGL 2.0 device. Without this, importing
+        # Kivy during PyInstaller analysis calls sys.exit() and stalls the job.
+        env:
+          KIVY_GL_BACKEND: mock
         shell: pwsh
         run: |
           $entry = if (Test-Path "app.py") { "app.py" } else { "main.py" }
