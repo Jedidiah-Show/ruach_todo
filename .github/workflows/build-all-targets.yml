@@ -131,7 +131,7 @@ jobs:
           # p4a builds hostpython3 with -std=c11: CPython 3.11 needs POSIX
           # macros for off_t, and _PYTHONFRAMEWORK must be defined explicitly
           # because its generated pyconfig.h leaves the macro undefined.
-          CFLAGS: '-D_GNU_SOURCE -D_PYTHONFRAMEWORK=""'
+          CFLAGS: '-D_GNU_SOURCE -D_PYTHONFRAMEWORK=\"\"'
         run: |
           yes | buildozer -v android debug
 
