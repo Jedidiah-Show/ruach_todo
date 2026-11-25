@@ -128,9 +128,10 @@ jobs:
       - name: Build Android debug APK
         env:
           ANDROID_ACCEPT_SDK_LICENSE: "1"
-          # CPython 3.11's tokenizer.c uses off_t, which needs POSIX macros
-          # exposed when p4a builds hostpython3 with -std=c11.
-          CFLAGS: "-D_GNU_SOURCE"
+          # p4a builds hostpython3 with -std=c11: CPython 3.11 needs POSIX
+          # macros for off_t, and _PYTHONFRAMEWORK must be defined explicitly
+          # because its generated pyconfig.h leaves the macro undefined.
+          CFLAGS: '-D_GNU_SOURCE -D_PYTHONFRAMEWORK=""'
         run: |
           yes | buildozer -v android debug
 
