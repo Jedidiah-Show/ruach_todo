@@ -1,2 +1,8 @@
 .venv
 .buildozer*
+dist/
+build/
+artifacts/
+*.spec
+__pycache__/
+*.pyc
