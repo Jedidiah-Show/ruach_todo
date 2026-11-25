@@ -1,6 +1,10 @@
 import os
+from datetime import datetime
+
 from kivy.app import App
+from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle
+from kivy.logger import Logger
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -12,20 +16,22 @@ from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.clock import Clock
-from gcal_sync import sync_tasks_to_google_calendar
-from datetime import datetime
+from kivy.utils import escape_markup, platform as kivy_platform
 
+from gcal_sync import sync_tasks_to_google_calendar
 from todo_logic import (
     add_task,
     clear_completed,
     count_remaining,
     edit_task,
     get_filtered_tasks,
+    is_task_due,
     load_settings,
     load_tasks,
     remove_task,
     save_settings,
     save_tasks,
+    SCHEDULE_HINT,
 )
 
 
@@ -84,15 +90,22 @@ THEMES = {
 
 
 def set_bg(widget, hex_color: str):
-    widget.canvas.before.clear()
-    with widget.canvas.before:
+    """Paint a widget background, replacing (and unbinding) any previous one."""
+    canvas = widget.canvas.before
+    canvas.clear()
+    with canvas:
         Color(*rgba(hex_color))
         rect = Rectangle(pos=widget.pos, size=widget.size)
+
+    old_update = getattr(widget, "_ruach_bg_update", None)
+    if old_update is not None:
+        widget.unbind(pos=old_update, size=old_update)
 
     def _update(_inst, _val):
         rect.pos = widget.pos
         rect.size = widget.size
 
+    widget._ruach_bg_update = _update
     widget.bind(pos=_update, size=_update)
 
 
@@ -126,6 +139,7 @@ class RuachTodoApp(App):
         self.editing_index: int | None = None
         self.tasks_file: str = ""
         self.settings_file: str = ""
+        self._notification_warning_shown = False
 
     def build(self):
         self.title = "Ruach To-do"
@@ -142,15 +156,29 @@ class RuachTodoApp(App):
         self.banner = BoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=dp(70),
-            padding=[dp(14), dp(10)],
-            spacing=dp(10),
+            height=dp(74),
+            padding=[dp(12), dp(8)],
+            spacing=dp(8),
         )
         logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ruach_ai.png")
+        self.logo_badge = None
         if os.path.exists(logo_path):
             self.banner.add_widget(
-                Image(source=logo_path, size_hint=(None, None), size=(dp(42), dp(42)))
+                Image(
+                    source=logo_path,
+                    size_hint=(None, None),
+                    size=(dp(40), dp(40)),
+                )
             )
+        else:
+            self.logo_badge = Label(
+                text="R",
+                bold=True,
+                font_size=dp(20),
+                size_hint=(None, None),
+                size=(dp(40), dp(40)),
+            )
+            self.banner.add_widget(self.logo_badge)
 
         title_col = BoxLayout(orientation="vertical", size_hint_x=1)
         self.title_lbl = Label(
@@ -177,7 +205,7 @@ class RuachTodoApp(App):
             font_size=dp(12),
             bold=True,
             size_hint=(None, None),
-            size=(dp(124), dp(34)),
+            size=(dp(150), dp(34)),
         )
         self.banner.add_widget(self.counter_lbl)
 
@@ -190,7 +218,7 @@ class RuachTodoApp(App):
         # --- Body Container ---
         self.body = BoxLayout(
             orientation="vertical",
-            padding=dp(12),
+            padding=[dp(10), dp(10)],
             spacing=dp(10),
         )
 
@@ -201,7 +229,7 @@ class RuachTodoApp(App):
             orientation="horizontal",
             size_hint_y=None,
             height=dp(38),
-            padding=[dp(6), dp(2)],
+            padding=[dp(4), dp(2)],
             spacing=dp(6),
         )
         self.filter_btns: dict[str, Button] = {}
@@ -255,8 +283,8 @@ class RuachTodoApp(App):
         self.controls_card = BoxLayout(
             orientation="vertical",
             size_hint_y=None,
-            height=dp(186),
-            padding=dp(10),
+            height=dp(172),
+            padding=[dp(10), dp(8)],
             spacing=dp(8),
         )
 
@@ -269,7 +297,7 @@ class RuachTodoApp(App):
         self.task_input.bind(on_text_validate=lambda _w: self.on_add())
         title_row.add_widget(self.task_input)
 
-        self.add_btn = make_btn("Add task", "#4F46E5", "#FFFFFF", width_dp=104, height_dp=40)
+        self.add_btn = make_btn("Add task", "#4F46E5", "#FFFFFF", width_dp=100, height_dp=40)
         self.add_btn.bind(on_release=lambda _b: self.on_add())
         title_row.add_widget(self.add_btn)
         self.controls_card.add_widget(title_row)
@@ -284,9 +312,9 @@ class RuachTodoApp(App):
         meta_row.add_widget(self.desc_input)
 
         self.schedule_input = TextInput(
-            hint_text="YYYY-MM-DD HH:MM or HH:MM",
+            hint_text=SCHEDULE_HINT,
             multiline=False,
-            font_size=dp(13),
+            font_size=dp(12),
             size_hint_x=None,
             width=dp(175),
         )
@@ -298,21 +326,31 @@ class RuachTodoApp(App):
         self.clear_done_btn = make_btn("Clear completed", "#475569", "#FFFFFF", height_dp=38)
         self.clear_done_btn.bind(on_release=lambda _b: self.on_clear_completed())
         bottom_row.add_widget(self.clear_done_btn)
-        self.gcal_btn = make_btn("Sync GCal", "#059669", "#FFFFFF", width_dp=110, height_dp=38)
+        self.gcal_btn = make_btn("Sync GCal", "#059669", "#FFFFFF", width_dp=100, height_dp=38)
         self.gcal_btn.bind(on_release=lambda _b: self.on_sync_gcal())
         bottom_row.add_widget(self.gcal_btn)
+        self.test_notify_btn = make_btn("Test 🔔", "#7C3AED", "#FFFFFF", width_dp=78, height_dp=38)
+        self.test_notify_btn.bind(on_release=lambda _b: self.on_test_notification())
+        bottom_row.add_widget(self.test_notify_btn)
         self.controls_card.add_widget(bottom_row)
 
         self.body.add_widget(self.controls_card)
         self.root_box.add_widget(self.body)
 
         self.apply_theme()
+        self._apply_responsive_layout()
+        Window.bind(width=self._apply_responsive_layout, height=self._apply_responsive_layout)
+
         msg = f"Loaded {len(self.tasks)} saved task(s)" if self.tasks else "Ready"
         self.refresh_display(msg, persist=False)
         Clock.schedule_interval(self.check_due_notifications, 30)
-        Clock.schedule_once(lambda _dt: self.check_due_notifications(0), 2)
+        Clock.schedule_once(self.check_due_notifications, 2)
+        Clock.schedule_once(lambda _dt: self._request_notification_permission(), 1)
         return self.root_box
 
+    # ------------------------------------------------------------------
+    # Theme and responsive layout
+    # ------------------------------------------------------------------
     def current_palette(self) -> dict:
         theme_name = self.settings.get("theme", "light")
         return THEMES.get(theme_name, THEMES["light"])
@@ -333,6 +371,9 @@ class RuachTodoApp(App):
         set_bg(self.list_card, p["bg_card"])
         set_bg(self.top_bar, p["bg_topbar"])
         set_bg(self.controls_card, p["bg_card"])
+        if self.logo_badge is not None:
+            set_bg(self.logo_badge, p["bg_banner_badge"])
+            self.logo_badge.color = rgba(p["fg_on_dark"])
 
         self.title_lbl.color = rgba(p["fg_on_dark"])
         self.sub_lbl.color = rgba(p["fg_on_dark_muted"])
@@ -344,6 +385,8 @@ class RuachTodoApp(App):
         self.add_btn.background_color = rgba(p["accent"])
         self.clear_done_btn.background_color = rgba(p["neutral"])
         self.clear_search_btn.background_color = rgba(p["neutral"])
+        self.gcal_btn.background_color = rgba(p["success"])
+        self.test_notify_btn.background_color = rgba("#7C3AED")
 
         for inp in (self.search_input, self.task_input, self.desc_input, self.schedule_input):
             inp.background_color = rgba(p["bg_input"])
@@ -352,6 +395,27 @@ class RuachTodoApp(App):
 
         self.update_filter_buttons()
         self.render_rows()
+
+    def _apply_responsive_layout(self, *_args):
+        """Keep the banner and controls usable on phone-sized windows."""
+        compact = Window.width < dp(560)
+        self.banner.height = dp(64) if compact else dp(74)
+        self.banner.padding = [dp(8), dp(6)] if compact else [dp(12), dp(8)]
+        self.counter_lbl.width = dp(110) if compact else dp(150)
+        self.counter_lbl.font_size = dp(10) if compact else dp(12)
+        self.sub_lbl.text = "" if compact else "Stay focused on what matters"
+        self.theme_btn.width = dp(58) if compact else dp(68)
+
+        self.body.padding = [dp(8), dp(8)] if compact else [dp(10), dp(10)]
+        self.controls_card.height = dp(172) if compact else dp(176)
+        self.schedule_input.width = dp(140) if compact else dp(175)
+        self.schedule_input.font_size = dp(11) if compact else dp(12)
+        self.gcal_btn.width = dp(78) if compact else dp(100)
+        self.test_notify_btn.width = dp(58) if compact else dp(78)
+        self.test_notify_btn.text = "🔔" if compact else "Test 🔔"
+        self.add_btn.width = dp(82) if compact else dp(100)
+        for btn in self.filter_btns.values():
+            btn.width = dp(52) if compact else dp(62)
 
     def update_filter_buttons(self):
         p = self.current_palette()
@@ -373,6 +437,9 @@ class RuachTodoApp(App):
         self.search_input.text = ""
         self.refresh_display(f"Showing {self.current_filter} tasks", persist=False)
 
+    # ------------------------------------------------------------------
+    # Task actions
+    # ------------------------------------------------------------------
     def on_add(self):
         msg = add_task(
             self.tasks,
@@ -403,7 +470,7 @@ class RuachTodoApp(App):
 
     def commit_edit(self, idx: int, new_title: str, new_desc: str, new_sched: str):
         msg = edit_task(self.tasks, idx, new_title, new_desc, new_sched)
-        saved = not msg.startswith("Invalid ") and not msg.startswith("Task title ") and not msg.endswith(" already exists") and not msg.startswith("Invalid schedule:")
+        saved = msg.startswith("Updated ")
         if saved:
             self.editing_index = None
         self.refresh_display(msg, persist=saved)
@@ -422,11 +489,17 @@ class RuachTodoApp(App):
             self.refresh_display("No completed tasks to clear", persist=False)
             return
 
-        content = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(12))
-        content.add_widget(Label(text=f"Remove {done_count} completed task(s)?"))
+        p = self.current_palette()
+        content = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(12))
+        set_bg(content, p["bg_card"])
+        confirm_lbl = Label(
+            text=f"Remove {done_count} completed task(s)?",
+            color=rgba(p["fg_primary"]),
+        )
+        content.add_widget(confirm_lbl)
         btns = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(10))
-        cancel_b = make_btn("Cancel", "#475569", "#FFFFFF", height_dp=40)
-        confirm_b = make_btn("Clear", "#DC2626", "#FFFFFF", height_dp=40)
+        cancel_b = make_btn("Cancel", p["neutral"], "#FFFFFF", height_dp=40)
+        confirm_b = make_btn("Clear", p["danger"], "#FFFFFF", height_dp=40)
         btns.add_widget(cancel_b)
         btns.add_widget(confirm_b)
         content.add_widget(btns)
@@ -434,8 +507,8 @@ class RuachTodoApp(App):
         popup = Popup(
             title="Clear Completed Tasks",
             content=content,
-            size_hint=(0.8, None),
-            height=dp(170),
+            size_hint=(0.85, None),
+            height=dp(180),
             auto_dismiss=False,
         )
 
@@ -482,24 +555,24 @@ class RuachTodoApp(App):
             has_details = bool(desc or sched)
 
             row_bg = p["bg_row_edit"] if is_editing else (p["bg_row_done"] if is_done else p["bg_row"])
-            row_height = dp(112) if is_editing else (dp(76) if has_details else dp(54))
+            row_height = dp(116) if is_editing else (dp(80) if has_details else dp(56))
 
             row = BoxLayout(
                 orientation="horizontal",
                 size_hint_y=None,
                 height=row_height,
-                padding=[dp(10), dp(6)],
-                spacing=dp(8),
+                padding=[dp(8), dp(6)],
+                spacing=dp(6),
             )
             set_bg(row, row_bg)
 
             num_lbl = Label(
                 text=f"{idx + 1}.",
                 color=rgba(p["fg_muted"]),
-                font_size=dp(13),
+                font_size=dp(12),
                 bold=True,
                 size_hint_x=None,
-                width=dp(26),
+                width=dp(22),
             )
             row.add_widget(num_lbl)
 
@@ -511,11 +584,11 @@ class RuachTodoApp(App):
                     multiline=False,
                     font_size=dp(13),
                     size_hint_y=None,
-                    height=dp(32),
+                    height=dp(34),
                     background_color=rgba(p["bg_input"]),
                     foreground_color=rgba(p["fg_primary"]),
                 )
-                edit_sub_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(32), spacing=dp(6))
+                edit_sub_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(34), spacing=dp(6))
                 edit_desc = TextInput(
                     text=desc,
                     hint_text="Description",
@@ -528,9 +601,9 @@ class RuachTodoApp(App):
                     text=sched,
                     hint_text="Schedule",
                     multiline=False,
-                    font_size=dp(12),
+                    font_size=dp(11),
                     size_hint_x=None,
-                    width=dp(130),
+                    width=dp(118),
                     background_color=rgba(p["bg_input"]),
                     foreground_color=rgba(p["fg_primary"]),
                 )
@@ -540,7 +613,7 @@ class RuachTodoApp(App):
                 edit_col.add_widget(edit_sub_row)
                 row.add_widget(edit_col)
 
-                save_b = make_btn("Save", p["success"], "#FFFFFF", width_dp=60, height_dp=38)
+                save_b = make_btn("Save", p["success"], "#FFFFFF", width_dp=56, height_dp=38)
                 save_b.bind(
                     on_release=lambda _b, i=idx, wt=edit_title, wd=edit_desc, ws=edit_sched: self.commit_edit(
                         i, wt.text, wd.text, ws.text
@@ -551,13 +624,15 @@ class RuachTodoApp(App):
                 chk = CheckBox(
                     active=is_done,
                     size_hint_x=None,
-                    width=dp(30),
+                    width=dp(28),
                 )
                 chk.bind(active=lambda _w, val, i=idx: self.on_toggle(i, val))
                 row.add_widget(chk)
 
                 text_col = BoxLayout(orientation="vertical", spacing=dp(2))
-                display_title = f"[s]{task['title']}[/s]" if is_done else task["title"]
+                display_title = escape_markup(task["title"])
+                if is_done:
+                    display_title = f"[s]{display_title}[/s]"
                 title_lbl = Label(
                     text=display_title,
                     markup=True,
@@ -573,11 +648,12 @@ class RuachTodoApp(App):
                 if has_details:
                     parts = []
                     if sched:
-                        parts.append(f"🕒 {sched}")
+                        parts.append(f"🕒 {escape_markup(sched)}")
                     if desc:
-                        parts.append(desc)
+                        parts.append(escape_markup(desc))
                     detail_lbl = Label(
                         text="  •  ".join(parts),
+                        markup=True,
                         color=rgba(p["fg_muted"]),
                         font_size=dp(12),
                         halign="left",
@@ -588,37 +664,100 @@ class RuachTodoApp(App):
 
                 row.add_widget(text_col)
 
-                edit_b = make_btn("Edit", p["neutral"], "#FFFFFF", width_dp=56, height_dp=36)
+                edit_b = make_btn("Edit", p["neutral"], "#FFFFFF", width_dp=50, height_dp=36)
                 edit_b.bind(on_release=lambda _b, i=idx: self.start_edit(i))
                 row.add_widget(edit_b)
 
-            del_b = make_btn("Del", p["danger"], "#FFFFFF", width_dp=50, height_dp=36)
+            del_b = make_btn("Del", p["danger"], "#FFFFFF", width_dp=46, height_dp=36)
             del_b.bind(on_release=lambda _b, i=idx: self.on_delete(i))
             row.add_widget(del_b)
 
             self.rows_box.add_widget(row)
 
-    def _send_notification(self, title: str, message: str):
+    # ------------------------------------------------------------------
+    # Notifications
+    # ------------------------------------------------------------------
+    def _send_notification(self, title: str, message: str) -> bool:
+        """Send a desktop notification; return True only if the platform accepted it."""
         try:
             from plyer import notification
-            notification.notify(title=title, message=message, app_name="Ruach To-do", timeout=8)
-        except Exception:
-            pass
+
+            notification.notify(
+                title=title,
+                message=message,
+                app_name="Ruach To-do",
+                timeout=10,
+            )
+            return True
+        except Exception as exc:
+            Logger.warning("RuachTodo: notification failed: %s", exc)
+            return False
+
+    def _request_notification_permission(self):
+        """Android 13+ requires runtime permission before notifications can show."""
+        if kivy_platform != "android":
+            return
+        try:
+            from android.permissions import request_permissions, Permission, check_permission
+        except Exception as exc:
+            Logger.warning("RuachTodo: cannot request notification permission: %s", exc)
+            return
+
+        wanted = []
+        for name in ("POST_NOTIFICATIONS", "VIBRATE"):
+            perm = getattr(Permission, name, None)
+            if perm is not None and not check_permission(perm):
+                wanted.append(perm)
+        if wanted:
+            request_permissions(wanted, self._on_permission_result)
+
+    def _on_permission_result(self, permissions, grants):
+        if all(grants):
+            self.status_lbl.text = "Notification permission granted"
+        else:
+            self.status_lbl.text = "Notification permission denied — enable it in Settings"
+
+    def on_test_notification(self):
+        ok = self._send_notification(
+            "Ruach To-do",
+            "Notifications are working. You're all set!",
+        )
+        msg = "Test notification sent" if ok else "Notification failed — check system settings"
+        self.refresh_display(msg, persist=False)
 
     def check_due_notifications(self, _dt):
-        from todo_logic import is_task_due
         now = datetime.now()
-        triggered = 0
-        for task in self.tasks:
-            if is_task_due(task, now):
+        due = [task for task in self.tasks if is_task_due(task, now)]
+        if not due:
+            return
+
+        sent = 0
+        failed = 0
+        first_title = ""
+        for task in due:
+            body = task.get("description") or f"Scheduled for {task.get('schedule')}"
+            if self._send_notification(f"Ruach To-do: {task['title']}", body):
+                # Only mark as notified once delivery succeeded, so a failed
+                # notification is retried on the next check instead of being lost.
                 task["notified"] = True
-                triggered += 1
-                body = task.get("description") or f"Scheduled for {task.get('schedule')}"
-                self._send_notification(f"Ruach To-do: {task['title']}", body)
-                self.status_lbl.text = f"Due now: {task['title']}"
-        if triggered > 0:
-            save_tasks(self.tasks, self.tasks_file)
-            self.render_rows()
+                sent += 1
+                if not first_title:
+                    first_title = task["title"]
+            else:
+                failed += 1
+
+        if sent:
+            status = f"Due now: {first_title}"
+            if sent > 1:
+                status += f" (+{sent - 1} more)"
+            if failed:
+                status += f"; {failed} failed"
+            self.refresh_display(status, persist=True)
+        else:
+            status = "Notification unavailable — check notification permissions"
+            if not self._notification_warning_shown:
+                self._notification_warning_shown = True
+                self.refresh_display(status, persist=False)
 
     def on_sync_gcal(self):
         try:

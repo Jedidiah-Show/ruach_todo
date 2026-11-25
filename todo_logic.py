@@ -1,6 +1,25 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, time
+
+
+# Accepted input formats -> canonical representation.
+# Canonical values keep the original code's wire format ("YYYY-MM-DD HH:MM",
+# "YYYY-MM-DD", "HH:MM") so existing saved tasks remain compatible.
+SCHEDULE_FORMATS = (
+    ("%Y-%m-%d %H:%M", "datetime"),
+    ("%Y-%m-%dT%H:%M", "datetime"),
+    ("%Y-%m-%d %I:%M %p", "datetime"),
+    ("%Y-%m-%dT%I:%M %p", "datetime"),
+    ("%Y-%m-%d", "date"),
+    ("%H:%M", "time"),
+    ("%I:%M %p", "time"),
+)
+
+SCHEDULE_HINT = "YYYY-MM-DD HH:MM, YYYY-MM-DD, or HH:MM (AM/PM allowed)"
+
+# All-day tasks remind at a civilised hour instead of exactly at midnight.
+ALL_DAY_REMINDER = time(9, 0)
 
 
 def load_settings(filepath: str) -> dict:
@@ -33,30 +52,40 @@ def save_settings(settings: dict, filepath: str) -> bool:
 
 def normalize_schedule(schedule: str) -> tuple[bool, str, str]:
     """Validate and normalize schedule text. Returns (is_valid, normalized_str, error_msg)."""
-    cleaned = schedule.strip()
+    cleaned = " ".join((schedule or "").strip().split())
     if not cleaned:
         return True, "", ""
 
-    formats = (
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d %I:%M %p",
-        "%Y-%m-%d",
-        "%H:%M",
-        "%I:%M %p",
-    )
-    for fmt in formats:
+    for fmt, kind in SCHEDULE_FORMATS:
         try:
             parsed = datetime.strptime(cleaned, fmt)
-            if fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p"):
-                return True, parsed.strftime("%Y-%m-%d %H:%M"), ""
-            if fmt == "%Y-%m-%d":
-                return True, parsed.strftime("%Y-%m-%d"), ""
-            if fmt in ("%H:%M", "%I:%M %p"):
-                return True, parsed.strftime("%H:%M"), ""
         except ValueError:
             continue
+        if kind == "datetime":
+            return True, parsed.strftime("%Y-%m-%d %H:%M"), ""
+        if kind == "date":
+            return True, parsed.strftime("%Y-%m-%d"), ""
+        return True, parsed.strftime("%H:%M"), ""
 
-    return False, cleaned, "Use YYYY-MM-DD HH:MM, YYYY-MM-DD, or HH:MM"
+    return False, cleaned, SCHEDULE_HINT
+
+
+def schedule_due_datetime(schedule: str, now: datetime | None = None) -> datetime | None:
+    """Return the local datetime at which a canonical schedule becomes due."""
+    sched = (schedule or "").strip()
+    ref = now or datetime.now()
+    try:
+        if len(sched) == 16:  # YYYY-MM-DD HH:MM
+            return datetime.strptime(sched, "%Y-%m-%d %H:%M")
+        if len(sched) == 10:  # YYYY-MM-DD (all-day)
+            due_date = datetime.strptime(sched, "%Y-%m-%d").date()
+            return datetime.combine(due_date, ALL_DAY_REMINDER)
+        if len(sched) == 5:  # HH:MM (today)
+            due_time = datetime.strptime(sched, "%H:%M").time()
+            return datetime.combine(ref.date(), due_time)
+    except ValueError:
+        return None
+    return None
 
 
 def is_task_due(task: dict, now: datetime | None = None) -> bool:
@@ -68,20 +97,8 @@ def is_task_due(task: dict, now: datetime | None = None) -> bool:
         return False
 
     ref = now or datetime.now()
-    try:
-        if len(sched) == 16:  # YYYY-MM-DD HH:MM
-            due_dt = datetime.strptime(sched, "%Y-%m-%d %H:%M")
-            return ref >= due_dt
-        if len(sched) == 10:  # YYYY-MM-DD
-            due_date = datetime.strptime(sched, "%Y-%m-%d").date()
-            return ref.date() >= due_date
-        if len(sched) == 5:  # HH:MM (today)
-            due_time = datetime.strptime(sched, "%H:%M").time()
-            due_dt = datetime.combine(ref.date(), due_time)
-            return ref >= due_dt
-    except ValueError:
-        return False
-    return False
+    due_dt = schedule_due_datetime(sched, ref)
+    return due_dt is not None and ref >= due_dt
 
 
 def load_tasks(filepath: str) -> list[dict]:
@@ -101,11 +118,16 @@ def load_tasks(filepath: str) -> list[dict]:
                     desc = item.get("description", "")
                     sched = item.get("schedule", "")
                     gcal_id = item.get("gcal_event_id")
+                    if isinstance(sched, str):
+                        _ok, norm_sched, _err = normalize_schedule(sched)
+                        sched = norm_sched
+                    else:
+                        sched = ""
                     cleaned_tasks.append({
                         "title": title,
                         "done": bool(item.get("done", False)),
                         "description": desc.strip() if isinstance(desc, str) else "",
-                        "schedule": sched.strip() if isinstance(sched, str) else "",
+                        "schedule": sched,
                         "notified": bool(item.get("notified", False)),
                         "gcal_event_id": gcal_id if isinstance(gcal_id, str) and gcal_id else None,
                     })

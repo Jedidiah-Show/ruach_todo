@@ -22,7 +22,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12.3"
+          python-version: "3.12"
 
       - name: Install dependencies and PyInstaller
         run: |
@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         run: |
           $entry = if (Test-Path "app.py") { "app.py" } else { "main.py" }
-          $extraArgs = @("--hidden-import", "todo_logic", "--hidden-import", "gcal_sync")
+          $extraArgs = @("--hidden-import", "todo_logic", "--hidden-import", "gcal_sync", "--collect-submodules", "plyer.platforms.win")
           if (Test-Path "ruach_ai.png") {
             $extraArgs += @("--add-data", "ruach_ai.png;.")
           }
@@ -56,7 +56,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12.3"
+          python-version: "3.12"
 
       - name: Install system packages and PyInstaller
         run: |
@@ -65,10 +65,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller kivy plyer
 
+      - name: Run logic tests
+        run: python -m unittest discover -s tests -v
+
       - name: Build Linux binary
         run: |
           ENTRY=$([ -f "app.py" ] && echo "app.py" || echo "main.py")
-          EXTRA_ARGS=(--hidden-import todo_logic --hidden-import gcal_sync)
+          EXTRA_ARGS=(--hidden-import todo_logic --hidden-import gcal_sync --collect-submodules plyer.platforms.linux)
           if [ -f "ruach_ai.png" ]; then
             EXTRA_ARGS+=(--add-data "ruach_ai.png:.")
           fi
@@ -91,7 +94,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12.3"
+          python-version: "3.12"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -110,7 +113,7 @@ jobs:
       - name: Install Buildozer and Cython
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          pip install buildozer cython
+          pip install buildozer==1.6.0 "cython<3"
 
       - name: Cache Buildozer SDK, NDK, and downloaded packages
         uses: actions/cache@v4
