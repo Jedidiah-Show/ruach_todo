@@ -10,3 +10,5 @@ __pycache__/
 token.json
 credentials.json
 client_secret*.json
+*.jks
+*.keystore

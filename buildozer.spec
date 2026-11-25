@@ -71,7 +71,7 @@ orientation = portrait
 # launched. This is optionally followed by ":foreground" for foreground services or
 # ":foreground:sticky" for sticky foreground services. The default is a background service.
 # Bound services are not supported.
-#services = NAME:ENTRYPOINT_TO_PY,NAME2:ENTRYPOINT2_TO_PY
+services = Notify:services/notify_service.py:foreground:sticky:foregroundServiceType=dataSync
 
 #
 # OSX Specific
@@ -109,14 +109,14 @@ fullscreen = 0
 
 # (list) Permissions
 # (See https://python-for-android.readthedocs.io/en/latest/buildoptions.html for all the supported syntaxes and properties)
-android.permissions = INTERNET,POST_NOTIFICATIONS,VIBRATE,WAKE_LOCK
+android.permissions = INTERNET,POST_NOTIFICATIONS,VIBRATE,WAKE_LOCK,FOREGROUND_SERVICE,FOREGROUND_SERVICE_DATA_SYNC
 #android.permissions = android.permission.INTERNET, (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=18)
 
 # (list) features (adds uses-feature -tags to manifest)
 #android.features = android.hardware.usb.host
 
 # (int) Target Android API, should be as high as possible.
-android.api = 33
+android.api = 36
 
 # (int) Minimum API your APK / AAB will support.
 android.minapi = 24
@@ -163,7 +163,7 @@ android.ndk = 28c
 
 # (str) Extra xml to write directly inside the <manifest><application> tag of AndroidManifest.xml
 # use that parameter to provide a filename from where to load your custom XML arguments:
-#android.extra_manifest_application_arguments = ./src/android/extra_manifest_application_arguments.xml
+# Foreground service subtype is declared via foregroundServiceType=dataSync above.
 
 # (str) Full name including package path of the Java class that implements Python Service
 # use that parameter to set custom Java class which extends PythonService

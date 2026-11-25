@@ -107,11 +107,11 @@ class FilteringAndStorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "nested", "settings.json")
             self.assertTrue(save_settings({"theme": "dark"}, path))
-            self.assertEqual(load_settings(path), {"theme": "dark"})
+            self.assertEqual(load_settings(path), {"theme": "dark", "font_scale": 1.0, "background_alerts": False})
             with open(path, "w", encoding="utf-8") as f:
                 f.write("{bad json")
-            self.assertEqual(load_settings(path), {"theme": "light"})
-        self.assertEqual(load_settings("/no/such/file"), {"theme": "light"})
+            self.assertEqual(load_settings(path), {"theme": "light", "font_scale": 1.0, "background_alerts": False})
+        self.assertEqual(load_settings("/no/such/file"), {"theme": "light", "font_scale": 1.0, "background_alerts": False})
 
     def test_load_tasks_ignores_corrupt_entries(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -42,6 +42,7 @@ jobs:
           $extraArgs = @(
             "--hidden-import", "todo_logic",
             "--hidden-import", "gcal_sync",
+            "--hidden-import", "background",
             "--hidden-import", "plyer.platforms.win.notification",
             "--hidden-import", "googleapiclient.discovery",
             "--hidden-import", "google.oauth2.credentials",
@@ -86,7 +87,7 @@ jobs:
       - name: Build Linux binary
         run: |
           ENTRY=$([ -f "app.py" ] && echo "app.py" || echo "main.py")
-          EXTRA_ARGS=(--hidden-import todo_logic --hidden-import gcal_sync --collect-submodules plyer.platforms.linux --hidden-import googleapiclient.discovery --hidden-import google.oauth2.credentials --hidden-import google_auth_oauthlib.flow --hidden-import google.auth.transport.requests)
+          EXTRA_ARGS=(--hidden-import todo_logic --hidden-import gcal_sync --hidden-import background --collect-submodules plyer.platforms.linux --hidden-import googleapiclient.discovery --hidden-import google.oauth2.credentials --hidden-import google_auth_oauthlib.flow --hidden-import google.auth.transport.requests)
           if [ -f "ruach_ai.png" ]; then
             EXTRA_ARGS+=(--add-data "ruach_ai.png:.")
           fi

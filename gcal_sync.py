@@ -104,6 +104,26 @@ def _delete_event(service, event_id: str) -> bool:
     return True
 
 
+def delete_gcal_event(task: dict, data_dir: str) -> tuple[int, str]:
+    """Best-effort removal of a task's calendar event after local deletion."""
+    event_id = task.get("gcal_event_id")
+    if not event_id:
+        return 0, ""
+    if not any(
+        os.path.exists(os.path.join(data_dir, name))
+        for name in ("credentials.json", "token.json")
+    ):
+        return 0, ""  # calendar was never configured for this install
+
+    try:
+        service = get_calendar_service(data_dir)
+        _delete_event(service, event_id)
+        task["gcal_event_id"] = None
+        return 1, "calendar event removed"
+    except Exception as exc:
+        return 0, f"calendar cleanup failed: {exc}"
+
+
 def sync_tasks_to_google_calendar(tasks: list[dict], data_dir: str) -> tuple[int, str]:
     """Create/update/remove Google Calendar events for scheduled tasks.
 
