@@ -121,14 +121,15 @@ def make_btn(
     fg_hex: str = "#FFFFFF",
     width_dp: int | None = None,
     height_dp: int = 40,
-    font_size: float = 14,
+    font_size: float | None = None,
 ) -> Button:
+    # font_size is already in device pixels (callers pass self.fs(base)).
     return Button(
         text=text,
         background_normal="",
         background_color=rgba(bg_hex),
         color=rgba(fg_hex),
-        font_size=dp(font_size),
+        font_size=dp(14) if font_size is None else font_size,
         bold=True,
         size_hint_x=None if width_dp else 1,
         width=dp(width_dp) if width_dp else dp(90),
@@ -177,12 +178,15 @@ class RuachTodoApp(App):
             padding=[dp(12), dp(8)],
             spacing=dp(8),
         )
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ruach_ai.png")
+        source_dir = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(source_dir, "ruach_ai.png")
+        emblem_path = os.path.join(source_dir, "ruach_ai_icon.png")
+        self.logo_path = emblem_path if kivy_platform == "android" and os.path.exists(emblem_path) else logo_path
         self.logo_badge = None
         self.banner_logo = None
-        if os.path.exists(logo_path):
+        if os.path.exists(self.logo_path):
             self.banner_logo = Image(
-                source=logo_path,
+                source=self.logo_path,
                 size_hint=(None, None),
                 size=(dp(56), dp(56)),
             )
@@ -505,6 +509,8 @@ class RuachTodoApp(App):
         self.schedule_input.width = dp(140) if compact else dp(175)
         self.schedule_input.font_size = self.fs(12) if compact else self.fs(13)
         self.gcal_btn.width = dp(78) if compact else dp(100)
+        self.gcal_btn.text = ("GCal" if compact else "Sync GCal") if kivy_platform != "android" else "GCal: desktop"
+        self.clear_done_btn.text = "Clear" if compact else "Clear completed"
         self.test_notify_btn.width = dp(58) if compact else dp(86)
         self.test_notify_btn.text = "Notify" if compact else "Test notice"
         self.add_btn.width = dp(82) if compact else dp(100)
