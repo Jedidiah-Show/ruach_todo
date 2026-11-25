@@ -20,15 +20,20 @@ source.dir = .
 # (list) Source files to include (leave empty to include all the files)
 source.include_exts = py,png,jpg,kv,atlas,json
 
-icon.filename = %(source.dir)s/ruach_ai.png
+# Use the emblem-only crop for launcher icons; the full wordmark stays in the app banner.
+icon.filename = %(source.dir)s/ruach_ai_icon.png
+icon.adaptive_foreground.filename = %(source.dir)s/ruach_ai_icon.png
 # (list) List of inclusions using pattern matching
 #source.include_patterns = assets/*,images/*.png
 
 # (list) Source files to exclude (leave empty to not exclude anything)
-#source.exclude_exts = spec
+source.exclude_exts = spec
 
 # (list) List of directory to exclude (leave empty to not exclude anything)
-#source.exclude_dirs = tests, bin, venv
+source.exclude_dirs = tests, bin, dist, artifacts, .venv, venv
+
+# Never bake OAuth credentials into a distributed APK.
+source.exclude_patterns = credentials.json, token.json, *client_secret*.json
 
 # (list) List of exclusions using pattern matching
 # Do not prefix with './'
@@ -104,7 +109,7 @@ fullscreen = 0
 
 # (list) Permissions
 # (See https://python-for-android.readthedocs.io/en/latest/buildoptions.html for all the supported syntaxes and properties)
-android.permissions = INTERNET,POST_NOTIFICATIONS,VIBRATE,WAKE_LOCK,RECEIVE_BOOT_COMPLETED
+android.permissions = INTERNET,POST_NOTIFICATIONS,VIBRATE,WAKE_LOCK
 #android.permissions = android.permission.INTERNET, (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=18)
 
 # (list) features (adds uses-feature -tags to manifest)
@@ -300,7 +305,7 @@ android.archs = arm64-v8a, armeabi-v7a
 # android.numeric_version = 1
 
 # (bool) enables Android auto backup feature (Android API >=23)
-android.allow_backup = True
+android.allow_backup = False
 
 # (str) XML file for custom backup rules (see official auto backup documentation)
 # android.backup_rules =
@@ -338,6 +343,7 @@ android.allow_backup = True
 
 # (str) python-for-android branch to use, defaults to master
 p4a.branch = develop
+p4a.commit = 9562d1b4f306d0af1e76991c711114010dea4152
 
 # (str) python-for-android specific commit to use, defaults to HEAD, must be within p4a.branch
 #p4a.commit = HEAD

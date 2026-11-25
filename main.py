@@ -143,7 +143,11 @@ class RuachTodoApp(App):
 
     def build(self):
         self.title = "Ruach To-do"
-        os.makedirs(self.user_data_dir, exist_ok=True)
+        os.makedirs(self.user_data_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(self.user_data_dir, 0o700)
+        except OSError:
+            pass
         self.tasks_file = os.path.join(self.user_data_dir, "tasks.json")
         self.settings_file = os.path.join(self.user_data_dir, "settings.json")
 
@@ -162,14 +166,14 @@ class RuachTodoApp(App):
         )
         logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ruach_ai.png")
         self.logo_badge = None
+        self.banner_logo = None
         if os.path.exists(logo_path):
-            self.banner.add_widget(
-                Image(
-                    source=logo_path,
-                    size_hint=(None, None),
-                    size=(dp(40), dp(40)),
-                )
+            self.banner_logo = Image(
+                source=logo_path,
+                size_hint=(None, None),
+                size=(dp(56), dp(56)),
             )
+            self.banner.add_widget(self.banner_logo)
         else:
             self.logo_badge = Label(
                 text="R",
@@ -327,9 +331,13 @@ class RuachTodoApp(App):
         self.clear_done_btn.bind(on_release=lambda _b: self.on_clear_completed())
         bottom_row.add_widget(self.clear_done_btn)
         self.gcal_btn = make_btn("Sync GCal", "#059669", "#FFFFFF", width_dp=100, height_dp=38)
+        if kivy_platform == "android":
+            # The desktop OAuth flow needs a browser and localhost callback.
+            self.gcal_btn.disabled = True
+            self.gcal_btn.text = "GCal: desktop"
         self.gcal_btn.bind(on_release=lambda _b: self.on_sync_gcal())
         bottom_row.add_widget(self.gcal_btn)
-        self.test_notify_btn = make_btn("Test 🔔", "#7C3AED", "#FFFFFF", width_dp=78, height_dp=38)
+        self.test_notify_btn = make_btn("Test notice", "#7C3AED", "#FFFFFF", width_dp=86, height_dp=38)
         self.test_notify_btn.bind(on_release=lambda _b: self.on_test_notification())
         bottom_row.add_widget(self.test_notify_btn)
         self.controls_card.add_widget(bottom_row)
@@ -399,9 +407,11 @@ class RuachTodoApp(App):
     def _apply_responsive_layout(self, *_args):
         """Keep the banner and controls usable on phone-sized windows."""
         compact = Window.width < dp(560)
-        self.banner.height = dp(64) if compact else dp(74)
+        self.banner.height = dp(64) if compact else dp(80)
         self.banner.padding = [dp(8), dp(6)] if compact else [dp(12), dp(8)]
-        self.counter_lbl.width = dp(110) if compact else dp(150)
+        if self.banner_logo is not None:
+            self.banner_logo.size = (dp(46), dp(46)) if compact else (dp(60), dp(60))
+        self.counter_lbl.width = dp(104) if compact else dp(150)
         self.counter_lbl.font_size = dp(10) if compact else dp(12)
         self.sub_lbl.text = "" if compact else "Stay focused on what matters"
         self.theme_btn.width = dp(58) if compact else dp(68)
@@ -411,8 +421,8 @@ class RuachTodoApp(App):
         self.schedule_input.width = dp(140) if compact else dp(175)
         self.schedule_input.font_size = dp(11) if compact else dp(12)
         self.gcal_btn.width = dp(78) if compact else dp(100)
-        self.test_notify_btn.width = dp(58) if compact else dp(78)
-        self.test_notify_btn.text = "🔔" if compact else "Test 🔔"
+        self.test_notify_btn.width = dp(58) if compact else dp(86)
+        self.test_notify_btn.text = "Notify" if compact else "Test notice"
         self.add_btn.width = dp(82) if compact else dp(100)
         for btn in self.filter_btns.values():
             btn.width = dp(52) if compact else dp(62)
@@ -528,7 +538,7 @@ class RuachTodoApp(App):
         remaining = count_remaining(self.tasks)
         completed = len(self.tasks) - remaining
         self.counter_lbl.text = f"{remaining} undone • {completed} done"
-        self.status_lbl.text = status_msg if status_msg else "Ready"
+        self.status_lbl.text = (status_msg[:160] + "…") if len(status_msg) > 160 else (status_msg or "Ready")
         self.render_rows()
 
     def render_rows(self):
@@ -648,7 +658,7 @@ class RuachTodoApp(App):
                 if has_details:
                     parts = []
                     if sched:
-                        parts.append(f"🕒 {escape_markup(sched)}")
+                        parts.append(f"Due: {escape_markup(sched)}")
                     if desc:
                         parts.append(escape_markup(desc))
                     detail_lbl = Label(
@@ -710,6 +720,9 @@ class RuachTodoApp(App):
                 wanted.append(perm)
         if wanted:
             request_permissions(wanted, self._on_permission_result)
+        elif not hasattr(Permission, "POST_NOTIFICATIONS"):
+            # Older p4a builds may not expose the constant; ask by string instead.
+            request_permissions(["android.permission.POST_NOTIFICATIONS"], self._on_permission_result)
 
     def _on_permission_result(self, permissions, grants):
         if all(grants):
@@ -762,7 +775,9 @@ class RuachTodoApp(App):
     def on_sync_gcal(self):
         try:
             synced, msg = sync_tasks_to_google_calendar(self.tasks, self.user_data_dir)
-            self.refresh_display(msg, persist=synced > 0)
+            # Persist even when nothing was newly synced: the sync may have
+            # assigned/cleared event IDs or deleted stale events.
+            self.refresh_display(msg, persist=True)
         except Exception as exc:
             self.refresh_display(f"GCal error: {exc}", persist=False)
 
