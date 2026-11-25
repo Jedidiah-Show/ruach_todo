@@ -6,8 +6,19 @@ by Ruach To-do and is resolved once at build time instead.
 """
 import os
 import kivy
+from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = [
+# Cython extension modules (e.g. kivy.graphics.buffer) are not importable by
+# name at analysis time, so collect them explicitly for this package only.
+_PROVIDER_PACKAGES = (
+    "kivy.graphics",
+    "kivy.core.window",
+    "kivy.core.text",
+    "kivy.core.image",
+    "kivy.core.clipboard",
+)
+
+hiddenimports = [m for pkg in _PROVIDER_PACKAGES for m in collect_submodules(pkg)] + [
     "kivy._version",
     "kivy.animation",
     "kivy.app",
