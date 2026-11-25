@@ -76,7 +76,7 @@ def install(exe_path: str) -> tuple[bool, str]:
     if sys.platform.startswith("linux"):
         if not shutil_which("crontab"):
             return False, "crontab is not installed on this system"
-        env = ""
+        env = "SDL_VIDEODRIVER=dummy "
         display = os.environ.get("DISPLAY")
         dbus = os.environ.get("DBUS_SESSION_BUS_ADDRESS")
         if display:
