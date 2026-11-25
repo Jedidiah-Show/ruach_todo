@@ -134,12 +134,12 @@ jobs:
       - name: Cache Buildozer SDK, NDK, and downloaded packages
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.buildozer
-            .buildozer
-          key: buildozer-android-v3-${{ runner.os }}-${{ hashFiles('buildozer.spec', 'main.py', 'todo_logic.py', 'gcal_sync.py') }}
+          # Cache downloads only. Caching the local build dir can restore a dist
+          # built against an older android.api (e.g. API 33 instead of 36).
+          path: ~/.buildozer
+          key: buildozer-android-v4-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-android-v3-${{ runner.os }}-
+            buildozer-android-v4-${{ runner.os }}-
 
       - name: Build Android debug APK
         env:
