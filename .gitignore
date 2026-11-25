@@ -2,7 +2,13 @@
 .buildozer*
 dist/
 build/
+bin/
 artifacts/
 *.spec
 __pycache__/
 *.pyc
+token.json
+credentials.json
+client_secret*.json
+*.jks
+*.keystore

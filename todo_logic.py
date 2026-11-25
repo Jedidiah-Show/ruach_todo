@@ -22,17 +22,35 @@ SCHEDULE_HINT = "YYYY-MM-DD HH:MM, YYYY-MM-DD, or HH:MM (AM/PM allowed)"
 ALL_DAY_REMINDER = time(9, 0)
 
 
+DEFAULT_FONT_SCALE = 1.0
+FONT_SCALES = (0.85, 1.0, 1.15, 1.3, 1.5)
+
+
 def load_settings(filepath: str) -> dict:
     """Load user UI settings safely."""
-    defaults = {"theme": "light"}
+    defaults = {
+        "theme": "light",
+        "font_scale": DEFAULT_FONT_SCALE,
+        "background_alerts": False,
+    }
     if not filepath or not os.path.exists(filepath):
         return defaults
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and data.get("theme") in ("light", "dark"):
-            return {"theme": data["theme"]}
-        return defaults
+        if not isinstance(data, dict):
+            return defaults
+        theme = data.get("theme")
+        scale = data.get("font_scale", DEFAULT_FONT_SCALE)
+        try:
+            scale = float(scale)
+        except (TypeError, ValueError):
+            scale = DEFAULT_FONT_SCALE
+        return {
+            "theme": theme if theme in ("light", "dark") else "light",
+            "font_scale": scale if 0.8 <= scale <= 1.6 else DEFAULT_FONT_SCALE,
+            "background_alerts": bool(data.get("background_alerts", False)),
+        }
     except (OSError, json.JSONDecodeError):
         return defaults
 
@@ -142,8 +160,10 @@ def save_tasks(tasks: list[dict], filepath: str) -> bool:
         parent = os.path.dirname(filepath)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
+        tmp_path = f"{filepath}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(tasks, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, filepath)
         return True
     except OSError:
         return False

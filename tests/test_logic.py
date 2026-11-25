@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -6,10 +7,15 @@ from datetime import datetime
 from todo_logic import (
     add_task,
     clear_completed,
+    count_remaining,
     edit_task,
+    get_filtered_tasks,
     is_task_due,
+    load_settings,
     load_tasks,
     normalize_schedule,
+    remove_task,
+    save_settings,
     save_tasks,
     schedule_due_datetime,
 )
@@ -71,7 +77,7 @@ class TaskTests(unittest.TestCase):
             loaded = load_tasks(path)
             self.assertEqual(loaded, tasks)
 
-        self.assertIn("deleted", __import__("todo_logic").remove_task(tasks, 0))
+        self.assertIn("deleted", remove_task(tasks, 0))
         self.assertEqual(tasks, [])
 
     def test_clear_completed(self):
@@ -82,6 +88,46 @@ class TaskTests(unittest.TestCase):
         count, msg = clear_completed(tasks)
         self.assertEqual((count, len(tasks)), (1, 1))
         self.assertIn("Cleared 1", msg)
+
+
+class FilteringAndStorageTests(unittest.TestCase):
+    def test_filter_and_search_keep_original_indices(self):
+        tasks = [
+            {"title": "Buy milk", "description": "from shop", "schedule": "", "done": False},
+            {"title": "Fix app", "description": "calendar notes", "schedule": "09:00", "done": True},
+            {"title": "Call", "description": "", "schedule": "", "done": False},
+        ]
+        self.assertEqual([i for i, _ in get_filtered_tasks(tasks, "active")], [0, 2])
+        self.assertEqual([i for i, _ in get_filtered_tasks(tasks, "done")], [1])
+        self.assertEqual([i for i, _ in get_filtered_tasks(tasks, "all", "calendar")], [1])
+        self.assertEqual([i for i, _ in get_filtered_tasks(tasks, "all", "09:00")], [1])
+        self.assertEqual(count_remaining(tasks), 2)
+
+    def test_settings_round_trip_and_bad_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "nested", "settings.json")
+            self.assertTrue(save_settings({"theme": "dark"}, path))
+            self.assertEqual(load_settings(path), {"theme": "dark", "font_scale": 1.0, "background_alerts": False})
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{bad json")
+            self.assertEqual(load_settings(path), {"theme": "light", "font_scale": 1.0, "background_alerts": False})
+        self.assertEqual(load_settings("/no/such/file"), {"theme": "light", "font_scale": 1.0, "background_alerts": False})
+
+    def test_load_tasks_ignores_corrupt_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "tasks.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump([
+                    {"title": "valid", "schedule": "9:30 AM", "notified": True, "gcal_event_id": "e1"},
+                    {"title": ""},
+                    {"no_title": 1},
+                    "not a dict",
+                ], f)
+            tasks = load_tasks(path)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["schedule"], "09:30")
+        self.assertTrue(tasks[0]["notified"])
+        self.assertEqual(tasks[0]["gcal_event_id"], "e1")
 
 
 if __name__ == "__main__":
